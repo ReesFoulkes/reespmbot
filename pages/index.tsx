@@ -17,205 +17,214 @@ const Home = () => {
     if (selectedConversation) {
       let updatedConversation: Conversation = {
         ...selectedConversation,
-        messages: [...selectedConversation.messages, message]
+        messages: [...selectedConversation.messages, message],
       };
-      
+  
       setSelectedConversation(updatedConversation);
       setLoading(true);
+  
+      try {
+        const response = await fetch("http://localhost:3001/api/ask", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*", // Add this line
+          },
+          credentials: "include", // Add this line
+          body: JSON.stringify({
+            model,
+            messages: updatedConversation.messages,
+          }),
+        });
+  
+        if (!response.ok) {
+          setLoading(false);
+          throw new Error(response.statusText);
+        }
 
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          model,
-          messages: updatedConversation.messages
-        })
-      });
+        const data = response.body;
 
-      if (!response.ok) {
+        if (!data) {
+          return;
+        }
+      
+
         setLoading(false);
-        throw new Error(response.statusText);
-      }
 
-      const data = response.body;
+        const reader = data.getReader();
+        const decoder = new TextDecoder();
+        let done = false;
+        let isFirst = true;
+        let text = "";
 
-      if (!data) {
-        return;
-      }
+        while (!done) {
+          const { value, done: doneReading } = await reader.read();
+          done = doneReading;
+          const chunkValue = decoder.decode(value);
 
-      setLoading(false);
+          text += chunkValue;
 
-      const reader = data.getReader();
-      const decoder = new TextDecoder();
-      let done = false;
-      let isFirst = true;
-      let text = "";
+          if (isFirst) {
+            isFirst = false;
+            const updatedMessages: Message[] = [...updatedConversation.messages, { role: "assistant", content: chunkValue }];
 
-      while (!done) {
-        const { value, done: doneReading } = await reader.read();
-        done = doneReading;
-        const chunkValue = decoder.decode(value);
+            updatedConversation = {
+              ...updatedConversation,
+              messages: updatedMessages
+            };
 
-        text += chunkValue;
+            setSelectedConversation(updatedConversation);
+          } else {
+            const updatedMessages: Message[] = updatedConversation.messages.map((message, index) => {
+              if (index === updatedConversation.messages.length - 1) {
+                return {
+                  ...message,
+                  content: text
+                };
+              }
 
-        if (isFirst) {
-          isFirst = false;
-          const updatedMessages: Message[] = [...updatedConversation.messages, { role: "assistant", content: chunkValue }];
+              return message;
+            });
 
-          updatedConversation = {
-            ...updatedConversation,
-            messages: updatedMessages
-          };
+            updatedConversation = {
+              ...updatedConversation,
+              messages: updatedMessages
+            };
 
-          setSelectedConversation(updatedConversation);
-        } else {
-          const updatedMessages: Message[] = updatedConversation.messages.map((message, index) => {
-            if (index === updatedConversation.messages.length - 1) {
-              return {
-                ...message,
-                content: text
-              };
-            }
-
-            return message;
-          });
-
-          updatedConversation = {
-            ...updatedConversation,
-            messages: updatedMessages
-          };
-
-          setSelectedConversation(updatedConversation);
-        }
-      }
-
-      localStorage.setItem("selectedConversation", JSON.stringify(updatedConversation));
-
-      const updatedConversations: Conversation[] = conversations.map((conversation) => {
-        if (conversation.id === selectedConversation.id) {
-          return updatedConversation;
+            setSelectedConversation(updatedConversation);
+          }
         }
 
-        return conversation;
-      });
+        localStorage.setItem("selectedConversation", JSON.stringify(updatedConversation));
 
-      if (updatedConversations.length === 0) {
-        updatedConversations.push(updatedConversation);
-      }
+        const updatedConversations: Conversation[] = conversations.map((conversation) => {
+          if (conversation.id === selectedConversation.id) {
+            return updatedConversation;
+          }
 
-      setConversations(updatedConversations);
+          return conversation;
+        });
 
-      localStorage.setItem("conversationHistory", JSON.stringify(updatedConversations));
+        if (updatedConversations.length === 0) {
+          updatedConversations.push(updatedConversation);
+        }
+
+        setConversations(updatedConversations);
+
+        localStorage.setItem("conversationHistory", JSON.stringify(updatedConversations));
+      } catch (error) {
+        console.error("Fetch error:", error);
+        setLoading(false);
+      }  
     }
   };
 
   const handleLightMode = (mode: "dark" | "light") => {
     setLightMode(mode);
     localStorage.setItem("theme", mode);
-  };
 
-  const handleNewConversation = () => {
-    const newConversation: Conversation = {
-      id: conversations.length + 1,
-      name: "",
-      messages: []
-    };
-
-    const updatedConversations = [...conversations, newConversation];
-    setConversations(updatedConversations);
-    localStorage.setItem("conversationHistory", JSON.stringify(updatedConversations));
-
-    setSelectedConversation(newConversation);
-    localStorage.setItem("selectedConversation", JSON.stringify(newConversation));
-
-    setModel(OpenAIModel.GPT_3_5);
-    setLoading(false);
-  };
-
-  const handleSelectConversation = (conversation: Conversation) => {
-    setSelectedConversation(conversation);
-    localStorage.setItem("selectedConversation", JSON.stringify(conversation));
-  };
-
-  const handleDeleteConversation = (conversation: Conversation) => {
-    const updatedConversations = conversations.filter((c) => c.id !== conversation.id);
-    setConversations(updatedConversations);
-    localStorage.setItem("conversationHistory", JSON.stringify(updatedConversations));
-
-    if (selectedConversation && selectedConversation.id === conversation.id) {
-      setSelectedConversation(undefined);
-      localStorage.removeItem("selectedConversation");
-    }
-  };
-
-  useEffect(() => {
-    const theme = localStorage.getItem("theme");
-    if (theme) {
-      setLightMode(theme as "dark" | "light");
-    }
-
-    const conversationHistory = localStorage.getItem("conversationHistory");
-
-    if (conversationHistory) {
-      setConversations(JSON.parse(conversationHistory));
-    }
-
-    const selectedConversation = localStorage.getItem("selectedConversation");
-    if (selectedConversation) {
-      setSelectedConversation(JSON.parse(selectedConversation));
-    } else {
-      setSelectedConversation({
-        id: 1,
+    const handleNewConversation = () => {
+      const newConversation: Conversation = {
+        id: conversations.length + 1,
         name: "",
         messages: []
-      });
-    }
-  }, []);
-
-  return (
-    <>
-      <Head>
-        <title>Mini Rees</title>
-        <meta
-          name="description"
-          content="GPT4 utilised ChatGPT clone built for F+L to share"
-        />
-        <meta
-          name="viewport"
-          content="width=device-width, initial-scale=1"
-        />
-        <link
-          rel="icon"
-          href="/favicon.ico"
-        />
-      </Head>
-      {selectedConversation && (
-        <div className={`flex h-screen text-white ${lightMode}`}>
-          <Sidebar
-            conversations={conversations}
-            lightMode={lightMode}
-            selectedConversation={selectedConversation}
-            onToggleLightMode={handleLightMode}
-            onNewConversation={handleNewConversation}
-            onSelectConversation={handleSelectConversation}
-            onDeleteConversation={handleDeleteConversation}
+      };
+    
+      const updatedConversations = [...conversations, newConversation];
+      setConversations(updatedConversations);
+      localStorage.setItem("conversationHistory", JSON.stringify(updatedConversations));
+    
+      setSelectedConversation(newConversation);
+      localStorage.setItem("selectedConversation", JSON.stringify(newConversation));
+    
+      setModel(OpenAIModel.GPT_3_5);
+      setLoading(false);
+    };
+    
+    const handleSelectConversation = (conversation: Conversation) => {
+      setSelectedConversation(conversation);
+      localStorage.setItem("selectedConversation", JSON.stringify(conversation));
+    };
+    
+    const handleDeleteConversation = (conversation: Conversation) => {
+      const updatedConversations = conversations.filter((c) => c.id !== conversation.id);
+      setConversations(updatedConversations);
+      localStorage.setItem("conversationHistory", JSON.stringify(updatedConversations));
+    
+      if (selectedConversation && selectedConversation.id === conversation.id) {
+        setSelectedConversation(undefined);
+        localStorage.removeItem("selectedConversation");
+      }
+    };
+    
+    useEffect(() => {
+      const theme = localStorage.getItem("theme");
+      if (theme) {
+        setLightMode(theme as "dark" | "light");
+      }
+    
+      const conversationHistory = localStorage.getItem("conversationHistory");
+    
+      if (conversationHistory) {
+        setConversations(JSON.parse(conversationHistory));
+      }
+    
+      const selectedConversation = localStorage.getItem("selectedConversation");
+      if (selectedConversation) {
+        setSelectedConversation(JSON.parse(selectedConversation));
+      } else {
+        setSelectedConversation({
+          id: 1,
+          name: "",
+          messages: []
+        });
+      }
+    }, []);
+    
+  
+    return (
+      <>
+        <Head>
+          <title>Mini Rees</title>
+          <meta
+            name="description"
+            content="GPT4 utilised ChatGPT clone built for F+L to share"
           />
-
-          <div className="flex flex-col w-full h-full dark:bg-[#343541]">
-            <Chat
-              model={model}
-              messages={selectedConversation.messages}
-              loading={loading}
-              onSend={handleSend}
-              onSelect={setModel}
+          <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"
+          />
+          <link
+            rel="icon"
+            href="/favicon.ico"
+          />
+        </Head>
+        {selectedConversation && (
+          <div className={`flex h-screen text-white ${lightMode}`}>
+            <Sidebar
+              conversations={conversations}
+              lightMode={lightMode}
+              selectedConversation={selectedConversation}
+              onToggleLightMode={handleLightMode}
+              onNewConversation={handleNewConversation}
+              onSelectConversation={handleSelectConversation}
+              onDeleteConversation={handleDeleteConversation}
             />
+  
+            <div className="flex flex-col w-full h-full dark:bg-[#343541]">
+              <Chat
+                model={model}
+                messages={selectedConversation.messages}
+                loading={loading}
+                onSend={handleSend}
+                onSelect={setModel}
+              />
+            </div>
           </div>
-        </div>
-      )}
-    </>
-  );
-};
-
-export default withAuth(Home); // Wrap the Home component with withAuth, placed outside of the component definition
+        )}
+      </>
+    );
+  };
+  
+  
+  export default withAuth(Home);

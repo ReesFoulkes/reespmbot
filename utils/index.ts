@@ -62,3 +62,5 @@ export const OpenAIStream = async (model: OpenAIModel, messages: Message[]) => {
 
   return stream;
 };
+console.log('OPENAI_API_KEY:', process.env.OPENAI_API_KEY);
+
